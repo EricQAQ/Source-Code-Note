@@ -25,9 +25,8 @@
 #include <signal.h>
 
 /* values */
-// 判断压力测试是否到达设定时间
-volatile int timerexpired=0;
-int speed=0; // 记录进程成功得到服务器相应的数量，即成功数
+volatile int timerexpired=0;    // 判断压力测试是否到达设定时间
+int speed=0; // 记录进程成功得到服务器相应的数量，即进程成功的数目
 int failed=0; // 记录失败的数目
 int bytes=0;  // 记录进程成功读取的字节数，当force = 0时有效
 
@@ -82,7 +81,7 @@ static void benchcore(const char* host,const int port, const char *request);
 static int bench(void);
 static void build_request(const char *url);
 
-// timerexpired = 1 时，定时结束
+// timerexpired = 1 时，定时结束, 表示超时
 static void alarm_handler(int signal)
 {
     timerexpired=1;
@@ -364,10 +363,11 @@ void build_request(const char *url)
 }
 
 /* vraci system rc error kod */
+// 主要函数, 用来创建子进程,执行子进程,读取数据 等
 static int bench(void)
 {
     int i,j,k;
-    pid_t pid=0;
+    pid_t pid=0;    // 子进程ID, pid=0表示子进程
     FILE *f;
 
     /* check avaibility of target server */
@@ -378,7 +378,11 @@ static int bench(void)
         return 1;
     }
     close(i);
-    /* create pipe */
+
+    /* create pipe
+     * pipe函数, 创建管道成功返回0, 失败返回-1
+     * if语句中,值为0则不执行,-1,1这些都执行
+    */
     if(pipe(mypipe))
     {
         perror("pipe failed.");
@@ -397,7 +401,7 @@ static int bench(void)
     // 根据并发数创建子进程
     for(i=0;i<clients;i++)
     {
-        pid=fork();
+        pid=fork();     // 创建子进程
         if(pid <= (pid_t) 0)
         {
             /* child process or error*/
@@ -431,7 +435,7 @@ static int bench(void)
             return 3;
         }
         /* fprintf(stderr,"Child - %d %d\n",speed,failed); */
-        // 子进程将speed failed bytes写进管道
+        // 子进程将speed failed bytes写进管道, fprintf函数用来向 流/文件 中写入
         fprintf(f,"%d %d %d\n",speed,failed,bytes);
         fclose(f);
         return 0;
@@ -453,7 +457,7 @@ static int bench(void)
         {
             // 通过f从管道读取数据，注意fscanf为阻塞式函数
             pid=fscanf(f,"%d %d %d",&i,&j,&k);
-            if(pid<2)
+            if(pid<2)   // 父进程只是用来管理子进程, 最少有一个子进程在工作,如果<2 则说明有子进程没有启用
             {
                 fprintf(stderr,"Some of our childrens died.\n");
                 break;
@@ -499,7 +503,7 @@ void benchcore(const char *host,const int port,const char *req)
     nexttry:while(1)
     {
         // 超时则返回
-        if(timerexpired)
+        if(timerexpired)    // =0 未超时; =1 超时
         {
             if(failed>0)
             {
@@ -511,15 +515,22 @@ void benchcore(const char *host,const int port,const char *req)
         s=Socket(host,port);
         if(s<0) { failed++;continue;} // 连接失败，failed数加一
         if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;} // header大小与发送的不相等，则失败
+
         if(http10==0)  // 针对HTTP0.9的特殊处理，关闭s的写功能，成功则返回0，错误则返回-1
         if(shutdown(s,1)) { failed++;close(s);continue;}
+
         // 发出请求后需要等待服务器的响应结果
         if(force==0)  // force = 0表示等待从Server返回的数据
         {
             /* read all available data from socket */
             while(1)
             {
-                if(timerexpired) break; // timerexpired默认为0，在规定时间内读取当为1时表示定时结束
+                /*
+                 * timerexpired默认为0，在规定时间内读取服务器的返回值
+                 * timerexpired=0: 未超时
+                 * timerexpired=1: 超时
+                 */
+                if(timerexpired) break;
                 i=read(s,buf,1500); // 从socket读取返回数据
                 /* fprintf(stderr,"%d\n",i); */
                 if(i<0)
@@ -535,6 +546,7 @@ void benchcore(const char *host,const int port,const char *req)
             }
         }
         if(close(s)) {failed++;continue;}
-        speed++;
+        speed++;    // 成功进程+1
     }
 }
+

@@ -58,6 +58,7 @@ int Socket(const char *host, int clientPort)
     sock = socket(AF_INET, SOCK_STREAM, 0);     // 默认使用TCP套接字
     if (sock < 0)
         return sock;
+    // 尝试连接到host, 如果没连接上,则返回-1表示失败
     if (connect(sock, (struct sockaddr *)&ad, sizeof(ad)) < 0)
         return -1;
     return sock;
