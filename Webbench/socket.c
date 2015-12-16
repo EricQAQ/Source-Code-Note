@@ -55,7 +55,7 @@ int Socket(const char *host, int clientPort)
     }
     ad.sin_port = htons(clientPort);
 
-    sock = socket(AF_INET, SOCK_STREAM, 0);
+    sock = socket(AF_INET, SOCK_STREAM, 0);     // 默认使用TCP套接字
     if (sock < 0)
         return sock;
     if (connect(sock, (struct sockaddr *)&ad, sizeof(ad)) < 0)
