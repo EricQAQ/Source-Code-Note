@@ -407,7 +407,7 @@ static int bench(void)
             /* child process or error*/
             // 注意这里子进程sleep(1)
             sleep(1); /* make childs faster */
-            break;
+            break;  // 非常重要! 如果没有这句,生成的子进程数=2^client-1个!!!
         }
     }
 

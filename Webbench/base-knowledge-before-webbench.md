@@ -53,7 +53,44 @@ extern int optind, opterr, optopt;
 	```
 2. **int *longindex**: 如果longindex非空，它指向的变量将记录当前找到参数符合longopts里的第几个元素的描述，即是longopts的下标值
 
-## 3. 管道Pipe
+## 3. 父进程与子进程
+webbench是通过fork()函数创建进程来完成压测的。当用户输入`-c 50`的指令的时候，表示需要模拟50个客户端来访问服务器，这时webbench就会循环执行fork()语句。
+
+### 循环执行fork()
+先看一段代码：
+
+```c
+void test_fork() {
+    int i = 0;
+    printf("i son/pa ppid pid  fpid\n");
+
+    for(i=0; i < 2; i++) {
+        pid_t fpid = fork();
+        if(fpid == 0) {
+            printf("%d child  %4d %4d %4d\n",i,getppid(),getpid(),fpid);
+        }
+        else {
+            printf("%d parent %4d %4d %4d\n",i,getppid(),getpid(),fpid);
+        }
+    }
+}
+```
+输出：
+
+	i son/pa ppid pid  fpid
+	0 parent  210 51003 51004
+	1 parent  210 51003 51005
+	1 child     1 51005    0
+	0 child     1 51004    0
+	1 parent    1 51004 51006
+	1 child     1 51006    0
+从输出可以看出，循环fork()2次，一共能生成3个子进程  
+**_归纳可得_**：生成的进程数 = 2^i-1  
+具体原因参照[fork函数详解](http://www.cnblogs.com/bastard/archive/2012/08/31/2664896.html)
+
+webbench同样适用了for循环调用fork，但是为了避免生成指数级的子进程，当创建出子进程的时候(pid==1), 调用break函数跳出循环
+
+## 4. 管道Pipe
 管道是**父进程与子进程**, 或者**有亲缘关系的进程(同属于一个父进程)**进行通信的方式。  
 管道是**半双工**的, 数据只能向一个方向流动。也就是说, 如果两个进程双方需要通信(双方都需要读写), 那么则需要两个管道  
 管道单独构成一种**独立的文件系统**：管道对于管道两端的进程而言，就是一个文件，但它不是普通的文件，它不属于某种文件系统，而是自立门户，单独构成一种文件系统，并且只存在与内存中。  
@@ -70,7 +107,7 @@ fd[2]表示两个文件描述符
 管道两端可分别用描述字fd[0]和fd[1]来描述。一端只能用于读，由fd[0]表示(管道读端); 另一端只能用于写，由fd[1]表示(管道写端)  
 文件的I/O操作都可以使用在管道上，比如close, read, write, fscanf(读), fprintf(写)
 
-## 4. 信号
+## 5. 信号
 webbench中，使用定时器来处理压测时间. 即当到达压测时间的时候，会触发一个handler函数，这个函数由webbench实现(其实就是把变量`timerexpired`由0设置为1, 0: 未到达指定时间, 1: 到达)  
 在函数中，定义了一个sigaction结构体，**用来描述对信号的处理**，这个结构体在`signal.h`中声明：
 
