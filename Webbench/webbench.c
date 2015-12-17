@@ -81,10 +81,10 @@ static void benchcore(const char* host,const int port, const char *request);
 static int bench(void);
 static void build_request(const char *url);
 
-// timerexpired = 1 时，定时结束, 表示超时
+// 定时器到时间后,触发该函数
 static void alarm_handler(int signal)
 {
-    timerexpired=1;
+    timerexpired=1;     // timerexpired = 1 时，定时结束, 表示超时
 }
 
 static void usage(void)
