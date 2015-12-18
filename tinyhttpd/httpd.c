@@ -94,12 +94,13 @@ void accept_request(int client) {
     }
 
     if (strcasecmp(method, "POST") == 0)
-        cgi = 1;
+        cgi = 1;    // 这个POST请求需要调用cgi
 
     i = 0;
-    while (ISspace(buf[j]) && (j < sizeof(buf)))
+    while (ISspace(buf[j]) && (j < sizeof(buf)))    // 空字符
         j++;
     while (!ISspace(buf[j]) && (i < sizeof(url) - 1) && (j < sizeof(buf))) {
+        // 获得客户端请求的url,并写入变量url中
         url[i] = buf[j];
         i++;
         j++;
@@ -108,34 +109,58 @@ void accept_request(int client) {
 
     if (strcasecmp(method, "GET") == 0) {
         query_string = url;
+        // 在请求url中找出请求参数
         while ((*query_string != '?') && (*query_string != '\0'))
             query_string++;
         if (*query_string == '?') {
-            cgi = 1;
+            cgi = 1;    // 这个GET请求需要调用cgi
             *query_string = '\0';
-            query_string++;
+            query_string++;     // 指针指向?后的第一个字符
+
+            /*
+             * ex: http://www.baidu.com/search?id=1
+             * 执行上面的代码后: http://www.baidu.com/search\0id=1
+             * 把?替换成\0,读取url的时候,读到\0的时候就会停止,达到分割url与请求参数的目的
+             */
         }
     }
 
-    sprintf(path, "htdocs%s", url);
+    // sprintf(char *str, char *format, [..]) 将格式化的数据写入字符串
+    sprintf(path, "htdocs%s", url);     // path 存储 请求的url(去掉参数), htdocs是存放网页的文件夹,与Apache的WWW类似
     if (path[strlen(path) - 1] == '/')
         strcat(path, "index.html");
+
+    /* stat(const char *file_name, struct stat *buf)
+     * stat函数用来把file_name所指的文件状态复制到buf中
+     * 下面的作用是在系统上查询该文件是否存在
+     */
     if (stat(path, &st) == -1) {
+        // 文件不存在,把本次http请求的后续内容读取完,忽略,然后返回404
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(client, buf, sizeof(buf));
         not_found(client);
     }
     else {
+        /*
+         * 文件存在
+         * 文件&S_IFMT 这个操作可以获得文件的类型
+         */
         if ((st.st_mode & S_IFMT) == S_IFDIR)
+            // 文件类型为目录
             strcat(path, "/index.html");
+        /*
+         * S_IXUSR 文件所有者具有可执行权限
+         * S_IXGRP 用户组有可执行权限
+         * S_IXOTH 其他用户有可执行权限
+         */
         if ((st.st_mode & S_IXUSR) ||
             (st.st_mode & S_IXGRP) ||
             (st.st_mode & S_IXOTH))
-            cgi = 1;
+            cgi = 1;    // 请求需要调用cgi
         if (!cgi)
-            serve_file(client, path);
+            serve_file(client, path);   // 不需要调用cgi
         else
-            execute_cgi(client, path, method, query_string);
+            execute_cgi(client, path, method, query_string);    // 执行cgi程序
     }
 
     close(client);
@@ -171,7 +196,7 @@ void cat(int client, FILE *resource) {
     char buf[1024];
 
     fgets(buf, sizeof(buf), resource);
-    while (!feof(resource)) {
+    while (!feof(resource)) {   // 循环读取
         send(client, buf, strlen(buf), 0);
         fgets(buf, sizeof(buf), resource);
     }
@@ -223,21 +248,24 @@ void execute_cgi(int client, const char *path,
     int numchars = 1;
     int content_length = -1;
 
-    buf[0] = 'A';
+    buf[0] = 'A';   // 确保能进入下面的循环
     buf[1] = '\0';
     if (strcasecmp(method, "GET") == 0)
+        // GET请求,读取http请求剩下的部分,然后忽略
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(client, buf, sizeof(buf));
     else    /* POST */
     {
         numchars = get_line(client, buf, sizeof(buf));
+        // 下面的循环主要是为了提取content-length,即body的大小,剩余部分忽略
         while ((numchars > 0) && strcmp("\n", buf)) {
             buf[15] = '\0';
             if (strcasecmp(buf, "Content-Length:") == 0)
-                content_length = atoi(&(buf[16]));
-            numchars = get_line(client, buf, sizeof(buf));
+                content_length = atoi(&(buf[16]));  // 获得Content-Length, 即body的大小
+            numchars = get_line(client, buf, sizeof(buf));  // 读取http请求剩余的部分,然后忽略
         }
         if (content_length == -1) {
+            // header没有content-length参数,报错
             bad_request(client);
             return;
         }
@@ -246,6 +274,7 @@ void execute_cgi(int client, const char *path,
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     send(client, buf, strlen(buf), 0);
 
+    // 创建2个管道,用来让2个进程通信
     if (pipe(cgi_output) < 0) {
         cannot_execute(client);
         return;
@@ -255,6 +284,7 @@ void execute_cgi(int client, const char *path,
         return;
     }
 
+    // 创建子进程
     if ((pid = fork()) < 0) {
         cannot_execute(client);
         return;
@@ -265,35 +295,52 @@ void execute_cgi(int client, const char *path,
         char query_env[255];
         char length_env[255];
 
-        dup2(cgi_output[1], 1);
-        dup2(cgi_input[0], 0);
-        close(cgi_output[0]);
-        close(cgi_input[1]);
-        sprintf(meth_env, "REQUEST_METHOD=%s", method);
+        // dup2(int oldfd, int newfd)用来复制参数oldfd所指的文件描述词, 并将它拷贝至参数newfd后一块返回
+        dup2(cgi_output[1], 1); // 将管道cgi_output的写端定向到子进程的写端
+        dup2(cgi_input[0], 0);  // 将管道cgi_input的读端定向到子进程的读端
+        close(cgi_output[0]);   // 关闭cgi_output管道的读端
+        close(cgi_input[1]);    // 关闭cgi_input管道的写端
+
+        sprintf(meth_env, "REQUEST_METHOD=%s", method); // 构造meth_env变量
+        /**
+         * putenv(const char *string) 改变或增加环境变量的内容(字符串格式:"name=value")
+         * 如果原先name变量存在,则值更新为value,如果不存在,则创建
+         */
         putenv(meth_env);
         if (strcasecmp(method, "GET") == 0) {
-            sprintf(query_env, "QUERY_STRING=%s", query_string);
+            sprintf(query_env, "QUERY_STRING=%s", query_string);    // 构造query_env变量,用来存放请求参数
             putenv(query_env);
         }
         else {   /* POST */
-            sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
+            sprintf(length_env, "CONTENT_LENGTH=%d", content_length);   // 构造length_env变量,存放body的长度
             putenv(length_env);
         }
-        execl(path, path, NULL);
+
+        /**
+         * int extcl(const char *path, const char *arg, ...)
+         * 该函数用来执行path代表的文件路径, 后面的变量表示执行需要的参数
+         */
+        execl(path, path, NULL);    // 执行cgi脚本, 相当于目前的服务器程序(通常用PHP,JAVA,Python,ruby等语言完成)
         exit(0);
     } else {    /* parent */
         close(cgi_output[1]);
         close(cgi_input[0]);
+        /*
+         * 如果请求是POST, 继续读取body的内容, 并把读取到的内容写入管道,交给子进程
+         */
         if (strcasecmp(method, "POST") == 0)
             for (i = 0; i < content_length; i++) {
                 recv(client, &c, 1, 0);
-                write(cgi_input[1], &c, 1);
+                write(cgi_input[1], &c, 1); // 写入管道,交给子进程
             }
-        while (read(cgi_output[0], &c, 1) > 0)
+        while (read(cgi_output[0], &c, 1) > 0)  // 从管道中读出子进程的输出,发送到客户端
             send(client, &c, 1, 0);
 
+        // 关闭管道
         close(cgi_output[0]);
         close(cgi_input[1]);
+
+        // 等待子进程的退出
         waitpid(pid, &status, 0);
     }
 }
@@ -402,6 +449,7 @@ void not_found(int client) {
  *              file descriptor
  *             the name of the file to serve */
 /**********************************************************************/
+// 把文件传输给客户端
 void serve_file(int client, const char *filename) {
     FILE *resource = NULL;
     int numchars = 1;
@@ -409,15 +457,16 @@ void serve_file(int client, const char *filename) {
 
     buf[0] = 'A';
     buf[1] = '\0';
+    // 循环读取http请求后面的所有内容,然后忽略掉
     while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
         numchars = get_line(client, buf, sizeof(buf));
 
-    resource = fopen(filename, "r");
+    resource = fopen(filename, "r");    // 打开文件
     if (resource == NULL)
         not_found(client);
     else {
-        headers(client, filename);
-        cat(client, resource);
+        headers(client, filename);  // 将文件的基本信息封装成HTTP Response请求,并发送
+        cat(client, resource);  // 读出这个文件的全部内容,并作为response body发送给客户端
     }
     fclose(resource);
 }
