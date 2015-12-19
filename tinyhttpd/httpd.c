@@ -296,8 +296,8 @@ void execute_cgi(int client, const char *path,
         char length_env[255];
 
         // dup2(int oldfd, int newfd)用来复制参数oldfd所指的文件描述词, 并将它拷贝至参数newfd后一块返回
-        dup2(cgi_output[1], 1); // 将管道cgi_output的写端定向到子进程的写端
-        dup2(cgi_input[0], 0);  // 将管道cgi_input的读端定向到子进程的读端
+        dup2(cgi_output[1], 1); // 将管道cgi_output的写端定向到子进程的写端(1是STDOUT写入端)
+        dup2(cgi_input[0], 0);  // 将管道cgi_input的读端定向到子进程的读端(0是STDIN读取端)
         close(cgi_output[0]);   // 关闭cgi_output管道的读端
         close(cgi_input[1]);    // 关闭cgi_input管道的写端
 
